@@ -11,7 +11,9 @@ export async function fetchTodayPuzzle(): Promise<DailyPuzzle | null> {
   const ref = doc(db, 'puzzles', date);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-  return snap.data() as DailyPuzzle;
+  const data = snap.data();
+  if (typeof data.grid === 'string') data.grid = JSON.parse(data.grid);
+  return data as DailyPuzzle;
 }
 
 export async function fetchUserProgress(userId: string): Promise<UserProgress | null> {

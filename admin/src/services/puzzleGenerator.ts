@@ -188,6 +188,10 @@ export async function generateAndSavePuzzle(
   if (!puzzle) throw new Error('Bulmaca oluşturulamadı, tekrar deneyin');
 
   puzzle.date = targetDate;
-  await setDoc(doc(db, 'puzzles', targetDate), puzzle);
+  // Firestore iç içe dizi desteklemediği için grid'i JSON string olarak kaydet
+  await setDoc(doc(db, 'puzzles', targetDate), {
+    ...puzzle,
+    grid: JSON.stringify(puzzle.grid),
+  });
   return puzzle;
 }

@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import type { User } from 'firebase/auth';
+import { auth } from './config/firebase';
 import { generateAndSavePuzzle } from './services/puzzleGenerator';
 import './App.css';
 
@@ -10,11 +13,21 @@ interface GeneratedWord {
 }
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [targetDate, setTargetDate] = useState(new Date().toISOString().split('T')[0]);
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [generatedWords, setGeneratedWords] = useState<GeneratedWord[]>([]);
+
+  useEffect(() => {
+    return onAuthStateChanged(auth, setUser);
+  }, []);
+
+  const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  };
 
   const handleGenerate = async () => {
     if (!apiKey.trim()) {
@@ -36,9 +49,32 @@ function App() {
     }
   };
 
+  if (!user) {
+    return (
+      <div style={{ maxWidth: 400, margin: '100px auto', padding: '0 20px', fontFamily: 'system-ui, sans-serif', textAlign: 'center' }}>
+        <h1>Çengel Bulmaca</h1>
+        <p style={{ color: '#666', marginBottom: 24 }}>Admin paneline erişmek için giriş yapın.</p>
+        <button
+          onClick={handleLogin}
+          style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '12px 28px', borderRadius: 6, fontSize: 15, cursor: 'pointer', fontWeight: 600 }}
+        >
+          Google ile Giriş Yap
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: 700, margin: '40px auto', padding: '0 20px', fontFamily: 'system-ui, sans-serif' }}>
-      <h1 style={{ borderBottom: '2px solid #333', paddingBottom: 12 }}>Çengel Bulmaca — Admin Panel</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #333', paddingBottom: 12, marginBottom: 24 }}>
+        <h1 style={{ margin: 0 }}>Çengel Bulmaca — Admin Panel</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 13, color: '#666' }}>{user.email}</span>
+          <button onClick={() => signOut(auth)} style={{ background: '#e5e7eb', border: 'none', padding: '6px 14px', borderRadius: 4, cursor: 'pointer', fontSize: 13 }}>
+            Çıkış
+          </button>
+        </div>
+      </div>
 
       <div style={{ background: '#f5f5f5', padding: 24, borderRadius: 8, marginBottom: 24 }}>
         <h2 style={{ marginTop: 0 }}>Günlük Bulmaca Üret</h2>

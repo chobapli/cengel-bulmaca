@@ -23,7 +23,15 @@
       "Bash(mkdir -p admin/src firebase)",
       "Bash(npx create-react-app *)",
       "Bash(rm -rf admin)",
-      "Bash(npm create *)"
+      "Bash(npm create *)",
+      "Bash(git config *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s http://localhost:5174)",
+      "Bash(git add *)"
     ]
   }
 }

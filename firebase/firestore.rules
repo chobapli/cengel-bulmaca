@@ -2,10 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Günlük bulmacalar — herkes okuyabilir, sadece admin yazabilir
+    // Günlük bulmacalar — giriş yapmış herkes okuyabilir, admin panelinden yazılır
     match /puzzles/{date} {
       allow read: if request.auth != null;
-      allow write: if false; // Admin SDK ile yazılır
+      allow write: if request.auth != null;
     }
 
     // Kullanıcı profilleri — sadece kendi profilini okuyup yazabilir
