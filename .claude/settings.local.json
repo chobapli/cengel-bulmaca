@@ -31,7 +31,8 @@
       "Bash(npm run *)",
       "Bash(curl -s http://localhost:5173)",
       "Bash(curl -s http://localhost:5174)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(curl -s http://localhost:8081)"
     ]
   }
 }
