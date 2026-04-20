@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Günlük bulmacalar — herkes okuyabilir, sadece admin yazabilir
+    match /puzzles/{date} {
+      allow read: if request.auth != null;
+      allow write: if false; // Admin SDK ile yazılır
+    }
+
+    // Kullanıcı profilleri — sadece kendi profilini okuyup yazabilir
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Kullanıcının bulmaca ilerlemesi
+    match /userProgress/{userId}/puzzles/{date} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Günlük skor tablosu — kimlik doğrulamalı herkes okuyabilir
+    match /leaderboard/{date}/scores/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

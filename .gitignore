@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Expo
+app/.expo/
+app/dist/
+app/web-build/
+
+# Admin build
+admin/dist/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+**/env.ts
+**/firebase.config.ts
+
+# OS
+.DS_Store
+*.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
