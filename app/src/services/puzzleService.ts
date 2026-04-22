@@ -1,19 +1,19 @@
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { DailyPuzzle, UserProgress } from '../types';
+import { ChengelPuzzle, UserProgress } from '../types';
 
 export function todayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+  // TEST: admin'de üretilen bulmacayı görmek için geçici
+  return '2026-04-23';
+  // return new Date().toISOString().split('T')[0];
 }
 
-export async function fetchTodayPuzzle(): Promise<DailyPuzzle | null> {
+export async function fetchTodayPuzzle(): Promise<ChengelPuzzle | null> {
   const date = todayDateString();
   const ref = doc(db, 'puzzles', date);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
-  const data = snap.data();
-  if (typeof data.grid === 'string') data.grid = JSON.parse(data.grid);
-  return data as DailyPuzzle;
+  return snap.data() as ChengelPuzzle;
 }
 
 export async function fetchUserProgress(userId: string): Promise<UserProgress | null> {
@@ -24,10 +24,7 @@ export async function fetchUserProgress(userId: string): Promise<UserProgress | 
   return snap.data() as UserProgress;
 }
 
-export async function saveUserProgress(
-  userId: string,
-  progress: UserProgress
-): Promise<void> {
+export async function saveUserProgress(userId: string, progress: UserProgress): Promise<void> {
   const ref = doc(db, 'userProgress', userId, 'puzzles', progress.date);
   await setDoc(ref, progress, { merge: true });
 }
@@ -43,8 +40,6 @@ export async function completeUserProgress(
     completedAt: Date.now(),
     elapsedSeconds,
   });
-
-  // Skor tablosuna kaydet
   const leaderRef = doc(db, 'leaderboard', date, 'scores', userId);
   await setDoc(leaderRef, {
     userId,

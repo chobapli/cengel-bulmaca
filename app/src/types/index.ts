@@ -1,28 +1,25 @@
-export interface CrosswordWord {
+export type ArrowDir = 'right' | 'down';
+
+export interface ChengelWord {
+  id: number;
   word: string;
   clue: string;
-  row: number;
-  col: number;
-  direction: 'across' | 'down';
-  number: number;
+  clueRow: number;
+  clueCol: number;
+  direction: ArrowDir;
 }
 
-export interface CrosswordCell {
-  letter: string;
-  wordNumbers: number[];
-  isBlack: boolean;
-}
-
-export interface DailyPuzzle {
-  date: string; // YYYY-MM-DD
-  grid: CrosswordCell[][];
-  words: CrosswordWord[];
+export interface ChengelPuzzle {
+  date: string;
+  gridRows: number;
+  gridCols: number;
+  words: ChengelWord[];
   createdAt: number;
 }
 
 export interface UserProgress {
   date: string;
-  userGrid: (string | null)[][];
+  userAnswers: { [key: string]: string };
   startedAt: number;
   lastUpdatedAt: number;
   completedAt: number | null;
@@ -33,7 +30,7 @@ export interface UserProgress {
 export interface LeaderboardEntry {
   userId: string;
   displayName: string;
-  completionTime: number; // saniye cinsinden
+  completionTime: number;
   completedAt: number;
 }
 

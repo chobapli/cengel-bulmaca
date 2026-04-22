@@ -2,51 +2,62 @@ import Anthropic from '@anthropic-ai/sdk';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-const GRID_SIZE = 10;
+// ── Tipler ───────────────────────────────────────────────────────────────────
+
+type ArrowDir = 'right' | 'down';
 
 interface WordWithClue {
   word: string;
   clue: string;
 }
 
-interface PlacedWord extends WordWithClue {
-  row: number;
-  col: number;
-  direction: 'across' | 'down';
-  number: number;
+interface ChengelWord {
+  id: number;
+  word: string;
+  clue: string;
+  clueRow: number;
+  clueCol: number;
+  direction: ArrowDir;
 }
 
-interface CrosswordCell {
-  letter: string;
-  wordNumbers: number[];
-  isBlack: boolean;
-}
-
-interface DailyPuzzle {
+interface ChengelPuzzle {
   date: string;
-  grid: CrosswordCell[][];
-  words: PlacedWord[];
+  gridRows: number;
+  gridCols: number;
+  words: ChengelWord[];
   createdAt: number;
 }
+
+// Grid hücresi: null | soru hücresi | cevap hücresi
+type PCell =
+  | null
+  | { t: 'c'; wid: number }
+  | { t: 'a'; letter: string; wids: number[] };
+
+const GRID = 22;
+
+// ── Claude ile kelime üretimi ─────────────────────────────────────────────────
 
 async function generateWordsWithClaude(apiKey: string): Promise<WordWithClue[]> {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    max_tokens: 2048,
     messages: [
       {
         role: 'user',
-        content: `Türkçe çengel bulmaca için 12 kelime üret. Kelimeler:
-- Sadece büyük Türkçe harflerden oluşsun (Ç, Ğ, İ, Ö, Ş, Ü dahil)
-- 4-8 harf uzunluğunda olsun
-- Günlük hayatta kullanılan yaygın kelimeler olsun
-- Her kelime için kısa ve net bir ipucu yaz
+        content: `Türkçe çengel bulmaca için 35 farklı kelime üret. Kurallar:
+- Sadece büyük Türkçe harfler (Ç Ğ İ Ö Ş Ü dahil, I yerine İ kullan)
+- 3-8 harf uzunluğunda olsun
+- Çok çeşitli konular: hayvanlar, bitkiler, şehirler, meslekler, yiyecekler, nesneler, sıfatlar
+- Her kelime için maksimum 4 kelimelik kısa ve net bir Türkçe ipucu yaz
+- İpuçta cevap kelimesini kullanma
+- Kelimeler birbirinden farklı ve yaygın olsun
 
-Yanıtı SADECE şu JSON formatında ver, başka hiçbir şey yazma:
+SADECE şu JSON formatında yanıt ver, başka hiçbir şey yazma:
 [
-  {"word": "KELIME", "clue": "İpucu metni"},
+  {"word": "ELMA", "clue": "Kırmızı ya da yeşil meyve"},
   ...
 ]`,
       },
@@ -57,141 +68,200 @@ Yanıtı SADECE şu JSON formatında ver, başka hiçbir şey yazma:
   if (content.type !== 'text') throw new Error('Beklenmeyen yanıt tipi');
 
   const jsonMatch = content.text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('JSON bulunamadı');
+  if (!jsonMatch) throw new Error('Claude yanıtında JSON bulunamadı');
 
   return JSON.parse(jsonMatch[0]) as WordWithClue[];
 }
 
-function createEmptyGrid(): string[][] {
-  return Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(''));
-}
+// ── Türk çengeli yerleştirme algoritması ─────────────────────────────────────
 
-function canPlace(grid: string[][], word: string, row: number, col: number, dir: 'across' | 'down'): boolean {
-  if (dir === 'across') {
-    if (col + word.length > GRID_SIZE) return false;
-    if (col > 0 && grid[row][col - 1] !== '') return false;
-    if (col + word.length < GRID_SIZE && grid[row][col + word.length] !== '') return false;
-    for (let i = 0; i < word.length; i++) {
-      const cell = grid[row][col + i];
-      if (cell !== '' && cell !== word[i]) return false;
-    }
-  } else {
-    if (row + word.length > GRID_SIZE) return false;
-    if (row > 0 && grid[row - 1][col] !== '') return false;
-    if (row + word.length < GRID_SIZE && grid[row + word.length][col] !== '') return false;
-    for (let i = 0; i < word.length; i++) {
-      const cell = grid[row + i][col];
-      if (cell !== '' && cell !== word[i]) return false;
+function canPlace(
+  grid: PCell[][],
+  word: string,
+  cr: number,
+  cc: number,
+  dir: ArrowDir,
+  requireIntersection: boolean
+): boolean {
+  // Soru hücresi sınır kontrolü
+  if (cr < 0 || cr >= GRID || cc < 0 || cc >= GRID) return false;
+  if (grid[cr][cc] !== null) return false;
+
+  let intersections = 0;
+
+  for (let i = 0; i < word.length; i++) {
+    const r = dir === 'down' ? cr + 1 + i : cr;
+    const c = dir === 'right' ? cc + 1 + i : cc;
+
+    if (r < 0 || r >= GRID || c < 0 || c >= GRID) return false;
+    const cell = grid[r][c];
+    if (cell === null) continue;
+    if (cell.t === 'c') return false; // cevap hücresi ile soru hücresi çakışamaz
+    if (cell.t === 'a') {
+      if (cell.letter !== word[i]) return false;
+      intersections++;
     }
   }
+
+  // Kelimenin bitiminden hemen sonra başka bir cevap hücresi gelemesin
+  const endR = dir === 'down' ? cr + 1 + word.length : cr;
+  const endC = dir === 'right' ? cc + 1 + word.length : cc;
+  if (endR >= 0 && endR < GRID && endC >= 0 && endC < GRID) {
+    if (grid[endR][endC]?.t === 'a') return false;
+  }
+
+  if (requireIntersection && intersections === 0) return false;
   return true;
 }
 
-function placeWord(grid: string[][], word: string, row: number, col: number, dir: 'across' | 'down'): void {
+function placeWord(
+  grid: PCell[][],
+  word: string,
+  clue: string,
+  cr: number,
+  cc: number,
+  dir: ArrowDir,
+  wid: number,
+  out: ChengelWord[]
+): void {
+  grid[cr][cc] = { t: 'c', wid };
+
   for (let i = 0; i < word.length; i++) {
-    if (dir === 'across') grid[row][col + i] = word[i];
-    else grid[row + i][col] = word[i];
+    const r = dir === 'down' ? cr + 1 + i : cr;
+    const c = dir === 'right' ? cc + 1 + i : cc;
+    const existing = grid[r][c];
+    if (existing?.t === 'a') {
+      existing.wids.push(wid);
+    } else {
+      grid[r][c] = { t: 'a', letter: word[i], wids: [wid] };
+    }
   }
+
+  out.push({ id: wid, word, clue, clueRow: cr, clueCol: cc, direction: dir });
 }
 
-function buildCrossword(wordList: WordWithClue[]): DailyPuzzle | null {
-  const grid = createEmptyGrid();
-  const placed: Array<WordWithClue & { row: number; col: number; direction: 'across' | 'down' }> = [];
+function buildCrossword(words: WordWithClue[]): ChengelPuzzle | null {
+  const grid: PCell[][] = Array.from({ length: GRID }, () => Array(GRID).fill(null));
+  const placed: ChengelWord[] = [];
+  let wid = 1;
 
-  const first = wordList[0];
-  const fc = Math.floor((GRID_SIZE - first.word.length) / 2);
-  const fr = Math.floor(GRID_SIZE / 2);
-  if (fc < 0) return null;
+  // Uzunluğa göre sırala (uzun kelimeler önce — daha fazla kesişim şansı)
+  const sorted = [...words].sort((a, b) => b.word.length - a.word.length);
 
-  placeWord(grid, first.word, fr, fc, 'across');
-  placed.push({ ...first, row: fr, col: fc, direction: 'across' });
+  // İlk kelimeyi yatay olarak ortaya yerleştir
+  const first = sorted[0];
+  const startC = Math.max(0, Math.floor((GRID - first.word.length - 1) / 2));
+  const startR = Math.floor(GRID / 2);
+  placeWord(grid, first.word, first.clue, startR, startC, 'right', wid++, placed);
 
-  for (let i = 1; i < wordList.length; i++) {
-    const { word, clue } = wordList[i];
-    const dirs: Array<'across' | 'down'> = i % 2 === 0 ? ['across', 'down'] : ['down', 'across'];
-
+  // Sonraki kelimeleri yerleştir
+  for (let wi = 1; wi < sorted.length; wi++) {
+    const { word, clue } = sorted[wi];
+    // Çift indisli kelimeler dikey, tek indisli yatay (daha dengeli yerleşim)
+    const dirs: ArrowDir[] = wi % 2 === 0 ? ['right', 'down'] : ['down', 'right'];
     let didPlace = false;
+
     for (const dir of dirs) {
-      const positions: Array<{ row: number; col: number; score: number }> = [];
-      for (let r = 0; r < GRID_SIZE; r++) {
-        for (let c = 0; c < GRID_SIZE; c++) {
-          if (!canPlace(grid, word, r, c, dir)) continue;
-          let score = 0;
-          for (let k = 0; k < word.length; k++) {
-            const cell = dir === 'across' ? grid[r][c + k] : grid[r + k][c];
-            if (cell === word[k]) score++;
+      const candidates: { cr: number; cc: number }[] = [];
+
+      // Mevcut cevap hücreleriyle kesişim ara
+      for (let li = 0; li < word.length; li++) {
+        for (let r = 0; r < GRID; r++) {
+          for (let c = 0; c < GRID; c++) {
+            const cell = grid[r][c];
+            if (!cell || cell.t !== 'a' || cell.letter !== word[li]) continue;
+
+            const cr = dir === 'right' ? r : r - li - 1;
+            const cc = dir === 'right' ? c - li - 1 : c;
+
+            if (canPlace(grid, word, cr, cc, dir, true)) {
+              candidates.push({ cr, cc });
+            }
           }
-          if (score > 0) positions.push({ row: r, col: c, score });
         }
       }
-      if (positions.length > 0) {
-        positions.sort((a, b) => b.score - a.score);
-        const best = positions[0];
-        placeWord(grid, word, best.row, best.col, dir);
-        placed.push({ word, clue, row: best.row, col: best.col, direction: dir });
+
+      if (candidates.length > 0) {
+        // Birden fazla aday varsa rastgele birini seç (çeşitlilik için)
+        const pick = candidates[Math.floor(Math.random() * Math.min(candidates.length, 5))];
+        placeWord(grid, word, clue, pick.cr, pick.cc, dir, wid++, placed);
         didPlace = true;
         break;
       }
     }
-    if (!didPlace) continue;
-  }
 
-  const cellGrid: CrosswordCell[][] = Array(GRID_SIZE).fill(null).map(() =>
-    Array(GRID_SIZE).fill(null).map(() => ({ letter: '', wordNumbers: [], isBlack: true }))
-  );
-
-  for (let r = 0; r < GRID_SIZE; r++) {
-    for (let c = 0; c < GRID_SIZE; c++) {
-      if (grid[r][c] !== '') {
-        cellGrid[r][c].letter = grid[r][c];
-        cellGrid[r][c].isBlack = false;
+    // Kesişim bulunamazsa ve henüz az kelime yerleşmişse izole yerleştir
+    if (!didPlace && placed.length < 6) {
+      const dir: ArrowDir = wi % 2 === 0 ? 'right' : 'down';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const cr = Math.floor(Math.random() * (GRID - word.length - 2));
+        const cc = Math.floor(Math.random() * (GRID - word.length - 2));
+        if (canPlace(grid, word, cr, cc, dir, false)) {
+          placeWord(grid, word, clue, cr, cc, dir, wid++, placed);
+          didPlace = true;
+          break;
+        }
       }
     }
   }
 
-  const sorted = [...placed].sort((a, b) => a.row !== b.row ? a.row - b.row : a.col - b.col);
-  const numberedCells = new Map<string, number>();
-  const words: PlacedWord[] = [];
-  let num = 1;
+  if (placed.length < 8) return null;
 
-  for (const p of sorted) {
-    const key = `${p.row}-${p.col}`;
-    if (!numberedCells.has(key)) numberedCells.set(key, num++);
-    const wordNumber = numberedCells.get(key)!;
-    words.push({ ...p, number: wordNumber });
-    for (let i = 0; i < p.word.length; i++) {
-      const r = p.direction === 'down' ? p.row + i : p.row;
-      const c = p.direction === 'across' ? p.col + i : p.col;
-      if (!cellGrid[r][c].wordNumbers.includes(wordNumber)) {
-        cellGrid[r][c].wordNumbers.push(wordNumber);
+  // Kullanılan alanı hesapla ve koordinatları küçült
+  let minR = GRID, maxR = 0, minC = GRID, maxC = 0;
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) {
+      if (grid[r][c] !== null) {
+        minR = Math.min(minR, r);
+        maxR = Math.max(maxR, r);
+        minC = Math.min(minC, c);
+        maxC = Math.max(maxC, c);
       }
     }
   }
+
+  // Sınır boşluğu bırak (1 hücre)
+  minR = Math.max(0, minR - 1);
+  minC = Math.max(0, minC - 1);
+  maxR = Math.min(GRID - 1, maxR + 1);
+  maxC = Math.min(GRID - 1, maxC + 1);
+
+  const adjustedWords = placed.map((w) => ({
+    ...w,
+    clueRow: w.clueRow - minR,
+    clueCol: w.clueCol - minC,
+  }));
 
   return {
     date: new Date().toISOString().split('T')[0],
-    grid: cellGrid,
-    words,
+    gridRows: maxR - minR + 1,
+    gridCols: maxC - minC + 1,
+    words: adjustedWords,
     createdAt: Date.now(),
   };
 }
 
+// ── Dışa aktarılan fonksiyon ──────────────────────────────────────────────────
+
 export async function generateAndSavePuzzle(
   apiKey: string,
   targetDate: string
-): Promise<DailyPuzzle> {
+): Promise<ChengelPuzzle> {
   const existing = await getDoc(doc(db, 'puzzles', targetDate));
   if (existing.exists()) throw new Error(`${targetDate} için bulmaca zaten mevcut`);
 
   const wordList = await generateWordsWithClaude(apiKey);
-  const puzzle = buildCrossword(wordList);
-  if (!puzzle) throw new Error('Bulmaca oluşturulamadı, tekrar deneyin');
+
+  // Birkaç deneme yap (rastgele sıra nedeniyle farklı sonuçlar çıkabilir)
+  let puzzle: ChengelPuzzle | null = null;
+  for (let attempt = 0; attempt < 3 && !puzzle; attempt++) {
+    const shuffled = [...wordList].sort(() => Math.random() - 0.5);
+    puzzle = buildCrossword(shuffled);
+  }
+
+  if (!puzzle) throw new Error('Bulmaca oluşturulamadı. Lütfen tekrar deneyin.');
 
   puzzle.date = targetDate;
-  // Firestore iç içe dizi desteklemediği için grid'i JSON string olarak kaydet
-  await setDoc(doc(db, 'puzzles', targetDate), {
-    ...puzzle,
-    grid: JSON.stringify(puzzle.grid),
-  });
+  await setDoc(doc(db, 'puzzles', targetDate), puzzle);
   return puzzle;
 }
